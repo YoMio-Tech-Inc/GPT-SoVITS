@@ -149,7 +149,7 @@ def cut5(inp):
     # inp += '。'
     inp = inp.strip("\n")
     # punds = r'[,.;?!、，。？！;：…]'
-    punds = r'[,.;?!、，。？！；：:…]'
+    punds = r'[.;?!。？！；：:…]'
     items = re.split(f'({punds})', inp)
     mergeitems = ["".join(group) for group in zip(items[::2], items[1::2])]
     # 在句子不存在符号或句尾无符号的时候保证文本完整

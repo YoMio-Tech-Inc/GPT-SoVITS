@@ -967,15 +967,22 @@ class SynthesizerTrn(nn.Module):
         return o, y_mask, (z, z_p, m_p, logs_p)
 
     @torch.no_grad()
-    def decode(self, codes, text, refer, noise_scale=0.5):
+    def decode(self, codes, text, refers, noise_scale=0.5):
         ge = None
-        if refer is not None:
-            refer_lengths = torch.LongTensor([refer.size(2)]).to(refer.device)
-            refer_mask = torch.unsqueeze(
-                commons.sequence_mask(refer_lengths, refer.size(2)), 1
-            ).to(refer.dtype)
-            ge = self.ref_enc(refer * refer_mask, refer_mask)
-
+        num = 0
+        for i, refer in enumerate(refers):
+            if refer is not None:
+                refer_lengths = torch.LongTensor([refer.size(2)]).to(refer.device)
+                refer_mask = torch.unsqueeze(
+                    commons.sequence_mask(refer_lengths, refer.size(2)), 1
+                ).to(refer.dtype)
+                if ge is None:
+                    ge = self.ref_enc(refer * refer_mask, refer_mask)
+                else:
+                    ge += self.ref_enc(refer * refer_mask, refer_mask)
+                num += 1
+        if ge is not None:
+            ge /= num
         y_lengths = torch.LongTensor([codes.size(2) * 2]).to(codes.device)
         text_lengths = torch.LongTensor([text.size(-1)]).to(text.device)
 
@@ -997,15 +1004,22 @@ class SynthesizerTrn(nn.Module):
     
     
     @torch.no_grad()
-    def batched_decode(self, codes, y_lengths, text, text_lengths, refer, noise_scale=0.5):
+    def batched_decode(self, codes, y_lengths, text, text_lengths, refers, noise_scale=0.5):
         ge = None
-        if refer is not None:
-            refer_lengths = torch.LongTensor([refer.size(2)]).to(refer.device)
-            refer_mask = torch.unsqueeze(
-                commons.sequence_mask(refer_lengths, refer.size(2)), 1
-            ).to(refer.dtype)
-            ge = self.ref_enc(refer * refer_mask, refer_mask)
-
+        num = 0
+        for i, refer in enumerate(refers):
+            if refer is not None:
+                refer_lengths = torch.LongTensor([refer.size(2)]).to(refer.device)
+                refer_mask = torch.unsqueeze(
+                    commons.sequence_mask(refer_lengths, refer.size(2)), 1
+                ).to(refer.dtype)
+                if ge is None:
+                    ge = self.ref_enc(refer * refer_mask, refer_mask)
+                else:
+                    ge += self.ref_enc(refer * refer_mask, refer_mask)
+                num += 1
+        if ge is not None:
+            ge /= num
         # y_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, codes.size(2)), 1).to(
         #     codes.dtype
         # )

@@ -354,63 +354,70 @@ class TTS:
         if self.cnhuhbert_model is not None:
             self.cnhuhbert_model = self.cnhuhbert_model.to(device)
         
-    def set_ref_audio(self, ref_audio_path:str):
+    def set_ref_audio(self, ref_audio_paths:list):
         '''
             To set the reference audio for the TTS model, 
                 including the prompt_semantic and refer_spepc.
             Args:
                 ref_audio_path: str, the path of the reference audio.
         '''
-        self._set_prompt_semantic(ref_audio_path)
-        self._set_ref_spec(ref_audio_path)
+        self._set_prompt_semantic(ref_audio_paths)
+        self._set_ref_spec(ref_audio_paths)
         
-    def _set_ref_spec(self, ref_audio_path):
-        audio = load_audio(ref_audio_path, int(self.configs.sampling_rate))
-        audio = torch.FloatTensor(audio)
-        audio_norm = audio
-        audio_norm = audio_norm.unsqueeze(0)
-        spec = spectrogram_torch(
-            audio_norm,
-            self.configs.filter_length,
-            self.configs.sampling_rate,
-            self.configs.hop_length,
-            self.configs.win_length,
-            center=False,
-        )
-        spec = spec.to(self.configs.device)
-        if self.configs.is_half:
-            spec = spec.half()
-        # self.refer_spec = spec
-        self.prompt_cache["refer_spec"] = spec
-        
-        
-    def _set_prompt_semantic(self, ref_wav_path:str):
-        zero_wav = np.zeros(
-            int(self.configs.sampling_rate * 0.3),
-            dtype=np.float16 if self.configs.is_half else np.float32,
-        )
-        with torch.no_grad():
-            wav16k, sr = librosa.load(ref_wav_path, sr=16000)
-            if (wav16k.shape[0] > 160000 or wav16k.shape[0] < 48000):
-                raise OSError(i18n("参考音频在3~10秒范围外，请更换！"))
-            wav16k = torch.from_numpy(wav16k)
-            zero_wav_torch = torch.from_numpy(zero_wav)
-            wav16k = wav16k.to(self.configs.device)
-            zero_wav_torch = zero_wav_torch.to(self.configs.device)
+    def _set_ref_spec(self, ref_audio_paths:list):
+        specs = []
+        for ref_audio_path in ref_audio_paths:
+            audio = load_audio(ref_audio_path, int(self.configs.sampling_rate))
+            audio = torch.FloatTensor(audio)
+            audio_norm = audio
+            audio_norm = audio_norm.unsqueeze(0)
+            spec = spectrogram_torch(
+                audio_norm,
+                self.configs.filter_length,
+                self.configs.sampling_rate,
+                self.configs.hop_length,
+                self.configs.win_length,
+                center=False,
+            )
+            spec = spec.to(self.configs.device)
             if self.configs.is_half:
-                wav16k = wav16k.half()
-                zero_wav_torch = zero_wav_torch.half()
+                spec = spec.half()
+            # self.refer_spec = spec
+            specs.append(spec)
+        self.prompt_cache["refer_specs"] = specs
+        
+        
+    def _set_prompt_semantic(self, ref_wav_paths:list):
+        prompt_semantic = None
+        for ref_wav_path in ref_wav_paths:
+            zero_wav = np.zeros(
+                int(self.configs.sampling_rate * 0.3),
+                dtype=np.float16 if self.configs.is_half else np.float32,
+            )
+            with torch.no_grad():
+                wav16k, sr = librosa.load(ref_wav_path, sr=16000)
+                if (wav16k.shape[0] > 160000 or wav16k.shape[0] < 48000):
+                    raise OSError(i18n("参考音频在3~10秒范围外，请更换！"))
+                wav16k = torch.from_numpy(wav16k)
+                zero_wav_torch = torch.from_numpy(zero_wav)
+                wav16k = wav16k.to(self.configs.device)
+                zero_wav_torch = zero_wav_torch.to(self.configs.device)
+                if self.configs.is_half:
+                    wav16k = wav16k.half()
+                    zero_wav_torch = zero_wav_torch.half()
 
-            wav16k = torch.cat([wav16k, zero_wav_torch])
-            hubert_feature = self.cnhuhbert_model.model(wav16k.unsqueeze(0))[
-                "last_hidden_state"
-            ].transpose(
-                1, 2
-            )  # .float()
-            codes = self.vits_model.extract_latent(hubert_feature)
-    
-            prompt_semantic = codes[0, 0].to(self.configs.device)
-            self.prompt_cache["prompt_semantic"] = prompt_semantic
+                wav16k = torch.cat([wav16k, zero_wav_torch])
+                hubert_feature = self.cnhuhbert_model.model(wav16k.unsqueeze(0))[
+                    "last_hidden_state"
+                ].transpose(
+                    1, 2
+                )  # .float()
+                codes = self.vits_model.extract_latent(hubert_feature)
+                if prompt_semantic is None:
+                    prompt_semantic = codes[0, 0].to(self.configs.device)
+                else:
+                    prompt_semantic = torch.cat([prompt_semantic, codes[0, 0]], dim=0)
+        self.prompt_cache["prompt_semantic"] = prompt_semantic
     
     def batch_sequences(self, sequences: List[torch.Tensor], axis: int = 0, pad_value: int = 0, max_length:int=None):
         seq = sequences[0]
@@ -605,10 +612,10 @@ class TTS:
         ########## variables initialization ###########
         self.stop_flag:bool = False
         text:str = inputs.get("text", "")
-        text_lang:str = inputs.get("text_lang", "")
-        ref_audio_path:str = inputs.get("ref_audio_path", "")
-        prompt_text:str = inputs.get("prompt_text", "")
-        prompt_lang:str = inputs.get("prompt_lang", "")
+        text_lang:str = inputs.get("text_lang", "auto")
+        ref_audio_paths:list = inputs.get("ref_audio_paths", "")
+        prompt_texts:list = inputs.get("prompt_texts", "")
+        prompt_lang:str = inputs.get("prompt_lang", "auto")
         top_k:int = inputs.get("top_k", 5)
         top_p:float = inputs.get("top_p", 1)
         temperature:float = inputs.get("temperature", 1)
@@ -646,36 +653,35 @@ class TTS:
             print(i18n("分段间隔过小，已自动设置为0.01"))
 
         no_prompt_text = False
-        if prompt_text in [None, ""]:
+        if prompt_texts in [None, ""]:
             no_prompt_text = True
 
         assert text_lang in self.configs.languages
         if not no_prompt_text:
             assert prompt_lang in self.configs.languages
 
-        if ref_audio_path in [None, ""] and \
-            ((self.prompt_cache["prompt_semantic"] is None) or (self.prompt_cache["refer_spec"] is None)):
-            raise ValueError("ref_audio_path cannot be empty, when the reference audio is not set using set_ref_audio()")
-
         ###### setting reference audio and prompt text preprocessing ########
         t0 = ttime()
-        if (ref_audio_path is not None) and (ref_audio_path != self.prompt_cache["ref_audio_path"]):
-            self.set_ref_audio(ref_audio_path)
-
+        if ref_audio_paths:
+            self.set_ref_audio(ref_audio_paths)
         if not no_prompt_text:
-            prompt_text = prompt_text.strip("\n")
-            if (prompt_text[-1] not in splits): prompt_text += "。" if prompt_lang != "en" else "."
-            print(i18n("实际输入的参考文本:"), prompt_text)
-            if self.prompt_cache["prompt_text"] != prompt_text:
-                self.prompt_cache["prompt_text"] = prompt_text
-                self.prompt_cache["prompt_lang"] = prompt_lang
+            for i, prompt_text in enumerate(prompt_texts):
+                prompt_text = prompt_text.strip("\n")
+                if (prompt_text[-1] not in splits): prompt_text += "。" if prompt_lang != "en" else "."
+                print(i18n("实际输入的参考文本:"), prompt_text)
+                
                 phones, bert_features, norm_text = \
                     self.text_preprocessor.segment_and_extract_feature_for_text(
                                                                         prompt_text, 
                                                                         prompt_lang)
-                self.prompt_cache["phones"] = phones
-                self.prompt_cache["bert_features"] = bert_features
-                self.prompt_cache["norm_text"] = norm_text
+                if i == 0:
+                    self.prompt_cache["phones"] = phones
+                    self.prompt_cache["bert_features"] = bert_features
+                    self.prompt_cache["norm_text"] = norm_text
+                else:
+                    self.prompt_cache["phones"] += phones
+                    self.prompt_cache["bert_features"] = torch.cat([self.prompt_cache["bert_features"], bert_features], 1)
+                    self.prompt_cache["norm_text"] += norm_text
 
         ###### text preprocessing ########
         t1 = ttime()
@@ -700,11 +706,13 @@ class TTS:
             print(i18n("############ 切分文本 ############"))
             texts = self.text_preprocessor.pre_seg_text(text, text_lang, text_split_method)
             data = []
+            print(len(texts))
             for i in range(len(texts)):
                 if i%batch_size == 0:
                     data.append([])
                 data[-1].append(texts[i])
-            
+            print("================================")
+            print(data)
             def make_batch(batch_texts):
                 batch_data = []
                 print(i18n("############ 提取文本Bert特征 ############"))
@@ -777,8 +785,9 @@ class TTS:
                 t4 = ttime()
                 t_34 += t4 - t3
 
-                refer_audio_spec:torch.Tensor = self.prompt_cache["refer_spec"]\
-                                                    .to(dtype=self.precision, device=self.configs.device)
+                # refer_audio_specs:list[torch.Tensor] = self.prompt_cache["refer_specs"]\
+                #                                     .to(dtype=self.precision, device=self.configs.device)
+                refer_audio_specs:list[torch.Tensor] = [item.to(dtype=self.precision, device=self.configs.device) for item in self.prompt_cache["refer_specs"]]
 
                 batch_audio_fragment = []
 
@@ -806,7 +815,7 @@ class TTS:
                 all_pred_semantic = torch.cat(pred_semantic_list).unsqueeze(0).unsqueeze(0).to(self.configs.device)
                 _batch_phones = torch.cat(batch_phones).unsqueeze(0).to(self.configs.device)
                 _batch_audio_fragment = (self.vits_model.decode(
-                        all_pred_semantic, _batch_phones, refer_audio_spec
+                        all_pred_semantic, _batch_phones, refer_audio_specs
                     ).detach()[0, 0, :])
                 audio_frag_end_idx.insert(0, 0)
                 batch_audio_fragment= [_batch_audio_fragment[audio_frag_end_idx[i-1]:audio_frag_end_idx[i]] for i in range(1, len(audio_frag_end_idx))]
