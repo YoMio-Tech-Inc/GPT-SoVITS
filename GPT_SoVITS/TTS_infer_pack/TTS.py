@@ -1,6 +1,9 @@
 from copy import deepcopy
 import math
 import os, sys
+
+# 将项目根目录添加到sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import random
 import traceback
 

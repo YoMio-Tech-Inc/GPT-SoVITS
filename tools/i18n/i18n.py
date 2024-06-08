@@ -1,10 +1,13 @@
 import json
 import locale
 import os
+import sys
 
+# 将项目根目录添加到sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def load_language_list(language):
-    with open(f"./i18n/locale/{language}.json", "r", encoding="utf-8") as f:
+    with open(f"./app/routers/voice/GSV/tools/i18n/locale/{language}.json", "r", encoding="utf-8") as f:
         language_list = json.load(f)
     return language_list
 

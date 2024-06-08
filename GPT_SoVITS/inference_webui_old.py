@@ -6,7 +6,11 @@
 全部按英文识别
 全部按日文识别
 '''
-import os, re, logging
+import os, re
+import sys
+
+# 将项目根目录添加到sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import LangSegment
 logging.getLogger("markdown_it").setLevel(logging.ERROR)
 logging.getLogger("urllib3").setLevel(logging.ERROR)
