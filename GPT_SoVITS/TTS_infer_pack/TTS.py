@@ -1,3 +1,4 @@
+import io
 import math
 import os
 import sys
@@ -364,20 +365,20 @@ class TTS:
         if self.cnhuhbert_model is not None:
             self.cnhuhbert_model = self.cnhuhbert_model.to(device)
 
-    def set_ref_audio(self, ref_audio_paths: list):
+    def set_ref_audio(self, ref_audios: list):
         """
         To set the reference audio for the TTS model,
             including the prompt_semantic and refer_spepc.
         Args:
             ref_audio_path: str, the path of the reference audio.
         """
-        self._set_prompt_semantic(ref_audio_paths)
-        self._set_ref_spec(ref_audio_paths)
+        self._set_prompt_semantic(ref_audios)
+        self._set_ref_spec(ref_audios)
 
-    def _set_ref_spec(self, ref_audio_paths: list):
+    def _set_ref_spec(self, ref_audios: list):
         specs = []
-        for ref_audio_path in ref_audio_paths:
-            audio = load_audio(ref_audio_path, int(self.configs.sampling_rate))
+        for ref_audio in ref_audios:
+            audio = load_audio(ref_audio, int(self.configs.sampling_rate))
             audio = torch.FloatTensor(audio)
             audio_norm = audio
             audio_norm = audio_norm.unsqueeze(0)
@@ -396,15 +397,17 @@ class TTS:
             specs.append(spec)
         self.prompt_cache["refer_specs"] = specs
 
-    def _set_prompt_semantic(self, ref_wav_paths: list):
+    def _set_prompt_semantic(self, ref_wavs: list):
         prompt_semantic = None
-        for ref_wav_path in ref_wav_paths:
+        for ref_wav in ref_wavs:
+            # convert to io.BytesIO
+            ref_wav = io.BytesIO(ref_wav)
             zero_wav = np.zeros(
                 int(self.configs.sampling_rate * 0.3),
                 dtype=np.float16 if self.configs.is_half else np.float32,
             )
             with torch.no_grad():
-                wav16k, sr = librosa.load(ref_wav_path, sr=16000)
+                wav16k, sr = librosa.load(ref_wav, sr=16000)
                 if wav16k.shape[0] > 160000 or wav16k.shape[0] < 48000:
                     raise OSError(i18n("参考音频在3~10秒范围外，请更换！"))
                 wav16k = torch.from_numpy(wav16k)
@@ -634,7 +637,7 @@ class TTS:
         self.stop_flag: bool = False
         text: str = inputs.get("text", "")
         text_lang: str = inputs.get("text_lang", "auto")
-        ref_audio_paths: list = inputs.get("ref_audio_paths", "")
+        ref_audios: list[io.BytesIO] = inputs.get("ref_audios", [])
         prompt_texts: list = inputs.get("prompt_texts", "")
         prompt_lang: str = inputs.get("prompt_lang", "auto")
         top_k: int = inputs.get("top_k", 5)
@@ -685,8 +688,8 @@ class TTS:
 
         ###### setting reference audio and prompt text preprocessing ########
         t0 = ttime()
-        if ref_audio_paths:
-            self.set_ref_audio(ref_audio_paths)
+        if ref_audios:
+            self.set_ref_audio(ref_audios)
         if not no_prompt_text:
             for i, prompt_text in enumerate(prompt_texts):
                 prompt_text = prompt_text.strip("\n")
