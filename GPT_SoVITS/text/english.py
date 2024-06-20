@@ -3,7 +3,15 @@ import os
 import re
 import wordsegment
 from g2p_en import G2p
+import os
+import sys
+from copy import deepcopy
 
+# 将项目根目录添加到sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 from string import punctuation
 
 from text import symbols

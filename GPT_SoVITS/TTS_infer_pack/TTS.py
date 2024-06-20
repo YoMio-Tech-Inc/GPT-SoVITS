@@ -253,13 +253,13 @@ class TTS:
 
     def init_cnhuhbert_weights(self, base_path: str):
         print(f"Loading CNHuBERT weights from {base_path}")
-        self.cnhuhbert_model = CNHubert(base_path)
+        self.cnhuhbert_model = CNHubert(base_path)  # TODO: 换一个Hubert模型，例如utter-project/mHuBERT-147
         self.cnhuhbert_model = self.cnhuhbert_model.eval()
         self.cnhuhbert_model = self.cnhuhbert_model.to(self.configs.device)
         if self.configs.is_half and str(self.configs.device) != "cpu":
             self.cnhuhbert_model = self.cnhuhbert_model.half()
 
-    def init_bert_weights(self, base_path: str):
+    def init_bert_weights(self, base_path: str): # TODO: 换一个bert模型
         print(f"Loading BERT weights from {base_path}")
         self.bert_tokenizer = AutoTokenizer.from_pretrained(base_path)
         self.bert_model = AutoModelForMaskedLM.from_pretrained(base_path)
@@ -372,7 +372,7 @@ class TTS:
         Args:
             ref_audio_path: str, the path of the reference audio.
         """
-        self._set_prompt_semantic(ref_audios)
+        self._set_prompt_semantic(ref_audios) #TODO: 进去换hubert
         self._set_ref_spec(ref_audios)
 
     def _set_ref_spec(self, ref_audios: list):
@@ -419,14 +419,16 @@ class TTS:
                     zero_wav_torch = zero_wav_torch.half()
 
                 wav16k = torch.cat([wav16k, zero_wav_torch])
-                hubert_feature = self.cnhuhbert_model.model(wav16k.unsqueeze(0))[
+                hubert_feature = self.cnhuhbert_model.model(wav16k.unsqueeze(0))[ # TODO: 换一个hubert模型
                     "last_hidden_state"
                 ].transpose(1, 2)  # .float()
+                print('-----------hubert---------')
+                print(hubert_feature.shape)
                 codes = self.vits_model.extract_latent(hubert_feature)
                 if prompt_semantic is None:
                     prompt_semantic = codes[0, 0].to(self.configs.device)
                 else:
-                    prompt_semantic = torch.cat([prompt_semantic, codes[0, 0]], dim=0)
+                    prompt_semantic = torch.cat([prompt_semantic, codes[0, 0]], dim=0) # 单码本
         self.prompt_cache["prompt_semantic"] = prompt_semantic
 
     def batch_sequences(
@@ -689,7 +691,7 @@ class TTS:
         ###### setting reference audio and prompt text preprocessing ########
         t0 = ttime()
         if ref_audios:
-            self.set_ref_audio(ref_audios)
+            self.set_ref_audio(ref_audios) # TODO: 进去换hubert
         if not no_prompt_text:
             for i, prompt_text in enumerate(prompt_texts):
                 prompt_text = prompt_text.strip("\n")
@@ -697,7 +699,7 @@ class TTS:
                     prompt_text += "。" if prompt_lang != "en" else "."
                 print(i18n("实际输入的参考文本:"), prompt_text)
 
-                phones, bert_features, norm_text = (
+                phones, bert_features, norm_text = ( # TODO: 不要提取音素
                     self.text_preprocessor.segment_and_extract_feature_for_text(
                         prompt_text, prompt_lang
                     )
@@ -753,7 +755,7 @@ class TTS:
                 batch_data = []
                 print(i18n("############ 提取文本Bert特征 ############"))
                 for text in tqdm(batch_texts):
-                    phones, bert_features, norm_text = (
+                    phones, bert_features, norm_text = ( # TODO：不要提取音素
                         self.text_preprocessor.segment_and_extract_feature_for_text(
                             text, text_lang
                         )
@@ -803,7 +805,7 @@ class TTS:
                 max_len = item["max_len"]
 
                 print(i18n("前端处理后的文本(每句):"), norm_text)
-                if no_prompt_text:
+                if no_prompt_text: # 如果没有prompt_text，连hubert都不用了。
                     prompt = None
                 else:
                     prompt = (

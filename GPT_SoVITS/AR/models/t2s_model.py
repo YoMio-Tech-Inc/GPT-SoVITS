@@ -1,30 +1,24 @@
 # modified from https://github.com/yangdongchao/SoundStorm/blob/master/soundstorm/s1/AR/models/t2s_model.py
 # reference: https://github.com/lifeiteng/vall-e
-import os, sys
+import os
+import sys
+
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 from typing import List
-import torch
-from tqdm import tqdm
 
-from AR.models.utils import make_pad_mask
-from AR.models.utils import (
-    topk_sampling,
-    sample,
-    logits_to_probs,
-    multinomial_sample_one_no_sync,
-    dpo_loss,
-    make_reject_y, 
-    get_batch_logps
-)
-from AR.modules.embedding import SinePositionalEmbedding
-from AR.modules.embedding import TokenEmbedding
-from AR.modules.transformer import LayerNorm
-from AR.modules.transformer import TransformerEncoder
-from AR.modules.transformer import TransformerEncoderLayer
+import torch
+from AR.models.utils import (dpo_loss, get_batch_logps, logits_to_probs,
+                             make_pad_mask, make_reject_y,
+                             multinomial_sample_one_no_sync, sample,
+                             topk_sampling)
+from AR.modules.embedding import SinePositionalEmbedding, TokenEmbedding
+from AR.modules.transformer import (LayerNorm, TransformerEncoder,
+                                    TransformerEncoderLayer)
 from torch import nn
 from torch.nn import functional as F
 from torchmetrics.classification import MulticlassAccuracy
+from tqdm import tqdm
 
 default_config = {
     "embedding_dim": 512,
@@ -508,10 +502,10 @@ class Text2SemanticDecoder(nn.Module):
 
     def infer_panel_batch_infer_with_flash_attn(
         self,
-        x:torch.LongTensor,  #####全部文本token
-        x_lens:torch.LongTensor,
-        prompts:torch.LongTensor,  ####参考音频token
-        bert_feature:torch.LongTensor,
+        x:torch.LongTensor,  #####全部文本token，即音素tokenization, text->phoneme->token [231+0.1321151241421,245+0.1285912941,231,521,533,235,123,1,2315,723]
+        x_lens:torch.LongTensor, ##### [1,10]
+        prompts:torch.LongTensor,  ####参考音频token,即wav->hubert->vq量化 [1,52,10]
+        bert_feature:torch.LongTensor, ###全部文本的embedding 即text->embedding,然后维度扩展到和phones一致
         top_k: int = -100,
         top_p: int = 100,
         early_stop_num: int = -1,
@@ -530,9 +524,9 @@ class Text2SemanticDecoder(nn.Module):
         max_len = kwargs.get("max_len",x_lens.max())
         # for x_item, bert_item in zip(x, bert_feature):
         #     max_len = max(max_len, x_item.shape[0], bert_item.shape[1])
-        x_list = [self.ar_text_embedding(item) for item in x]
+        x_list = [self.ar_text_embedding(item) for item in x] 
         x_list = [F.pad(item,(0,0,0,max_len-item.shape[0]),value=0) if item.shape[0]<max_len else item for item in x_list]
-        x = torch.stack(x_list, dim=0)
+        x = torch.stack(x_list, dim=0) # ! TODO: x没有意义，因为这里x被提取了embedding，但是bert_feature已经是embedding了。
 
         bert_features_list = [self.bert_proj(item.transpose(0, 1)) for item in bert_feature]
         bert_features_list = [F.pad(item,(0,0,0,max_len-item.shape[0]), value=0) if item.shape[0]<max_len else item for item in bert_features_list]
@@ -541,7 +535,13 @@ class Text2SemanticDecoder(nn.Module):
 
         # bert_feature = self.bert_proj(bert_feature.transpose(1, 2).float()).to(dtype=bert_feature_dtype)
         # x = self.ar_text_embedding(x)
-        x = x + bert_feature 
+        print("----------")
+        print(x)
+        print(x.shape)
+        print("----------")
+        print(bert_feature)
+        print(bert_feature.shape)
+        x = x + bert_feature # TODO: 直接去掉x
         x = self.ar_text_position(x)
 
         # AR Decoder
@@ -732,7 +732,7 @@ class Text2SemanticDecoder(nn.Module):
         x = self.ar_text_position(x)
 
         # AR Decoder
-        y = prompts
+        y = prompts # TODO: 这个code到底是个什么？为什么要转换成embedding，他本来不量化不就是embedding了吗？
         
         x_len = x.shape[1]
         x_attn_mask = torch.zeros((x_len, x_len), dtype=torch.bool)

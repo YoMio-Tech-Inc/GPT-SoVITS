@@ -883,7 +883,7 @@ class SynthesizerTrn(nn.Module):
             spec_channels, style_vector_dim=gin_channels
         )
 
-        ssl_dim = 768
+        ssl_dim = 768 # TODO: 应该是hubert的维度。
         assert semantic_frame_rate in ["25hz", "50hz"]
         self.semantic_frame_rate = semantic_frame_rate
         if semantic_frame_rate == "25hz":
@@ -891,7 +891,7 @@ class SynthesizerTrn(nn.Module):
         else:
             self.ssl_proj = nn.Conv1d(ssl_dim, ssl_dim, 1, stride=1)
 
-        self.quantizer = ResidualVectorQuantizer(dimension=ssl_dim, n_q=1, bins=1024)
+        self.quantizer = ResidualVectorQuantizer(dimension=ssl_dim, n_q=1, bins=1024) # TODO: bins 改更大可不可以。
         self.freeze_quantizer = freeze_quantizer
         # if freeze_quantizer:
         #     self.ssl_proj.requires_grad_(False)
