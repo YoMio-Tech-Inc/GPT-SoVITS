@@ -422,8 +422,6 @@ class TTS:
                 hubert_feature = self.cnhuhbert_model.model(wav16k.unsqueeze(0))[ # TODO: 换一个hubert模型
                     "last_hidden_state"
                 ].transpose(1, 2)  # .float()
-                print('-----------hubert---------')
-                print(hubert_feature.shape)
                 codes = self.vits_model.extract_latent(hubert_feature)
                 if prompt_semantic is None:
                     prompt_semantic = codes[0, 0].to(self.configs.device)
@@ -743,13 +741,10 @@ class TTS:
                 text, text_lang, text_split_method
             )
             data = []
-            print(len(texts))
             for i in range(len(texts)):
                 if i % batch_size == 0:
                     data.append([])
                 data[-1].append(texts[i])
-            print("================================")
-            print(data)
 
             def make_batch(batch_texts):
                 batch_data = []
